@@ -490,7 +490,7 @@ export default function App() {
       setState(prev=>({...prev,...s}));
       if(s.vd&&s.vd>=START_DATE&&s.vd<=END_DATE) setViewDs(s.vd);
       if(s.activeSessionId&&s.activeSessionSubj)
-        setActive({id:s.activeSessionId,subj:s.activeSessionSubj,startTime:Date.now()});
+        setActive({id:s.activeSessionId,subj:s.activeSessionSubj,startTime:s.activeSessionStart||Date.now()});
       setLoaded(true);
     }).catch(()=>setLoaded(true));
   },[]);
@@ -502,10 +502,7 @@ export default function App() {
     saveTimerRef.current=setTimeout(()=>apiPost(s),300);
   },[]);
   const buildSnap = useCallback(()=>{
-    const as=activeRef.current,s=stateRef.current;
-    if(!as) return s;
-    const elapsed=Date.now()-as.startTime;
-    return{...s,timers:{...s.timers,[as.id]:{total:(s.timers[as.id]?.total||0)+elapsed}}};
+    return stateRef.current;
   },[]);
   useEffect(()=>{
     const beacon=()=>{
@@ -519,10 +516,7 @@ export default function App() {
   },[buildSnap]);
   useEffect(()=>{
     if(!activeSession) return;
-    const t=setInterval(()=>{
-      const elapsed=Date.now()-activeSession.startTime;
-      apiPost({...stateRef.current,timers:{...stateRef.current.timers,[activeSession.id]:{total:(stateRef.current.timers[activeSession.id]?.total||0)+elapsed}}});
-    },5000);
+    const t=setInterval(()=>apiPost(stateRef.current),5000);
     return()=>clearInterval(t);
   },[activeSession]);
 
@@ -658,13 +652,14 @@ export default function App() {
   // Session actions
   function handleStart(item) {
     haptic(50);
-    setActive({id:item.id,subj:item.subj,startTime:Date.now()});
-    updateState(prev=>({...prev,activeSessionId:item.id,activeSessionSubj:item.subj}));
+    const startTime=Date.now();
+    setActive({id:item.id,subj:item.subj,startTime});
+    updateState(prev=>({...prev,activeSessionId:item.id,activeSessionSubj:item.subj,activeSessionStart:startTime}));
   }
   function handleStop(item) {
     haptic([40,20,40]); if(!activeSession) return;
     const elapsed=Date.now()-activeSession.startTime;
-    updateState(prev=>({...prev,activeSessionId:null,activeSessionSubj:null,
+    updateState(prev=>({...prev,activeSessionId:null,activeSessionSubj:null,activeSessionStart:null,
       timers:{...prev.timers,[item.id]:{total:(prev.timers[item.id]?.total||0)+elapsed}},
       lastSeen:{...prev.lastSeen,[item.subj]:Date.now()}}));
     setActive(null);
@@ -672,7 +667,7 @@ export default function App() {
   function handleDone(item) {
     haptic([40,20,40]);
     const elapsed=activeSession?.id===item.id?Date.now()-activeSession.startTime:0;
-    updateState(prev=>({...prev,activeSessionId:null,activeSessionSubj:null,
+    updateState(prev=>({...prev,activeSessionId:null,activeSessionSubj:null,activeSessionStart:null,
       done:prev.done.includes(item.id)?prev.done:[...prev.done,item.id],
       timers:elapsed>0?{...prev.timers,[item.id]:{total:(prev.timers[item.id]?.total||0)+elapsed}}:prev.timers,
       lastSeen:{...prev.lastSeen,[item.subj]:Date.now()}}));
@@ -682,6 +677,7 @@ export default function App() {
     if(activeSession?.id===id) setActive(null);
     updateState(prev=>({...prev,
       activeSessionId:prev.activeSessionId===id?null:prev.activeSessionId,
+      activeSessionStart:prev.activeSessionId===id?null:prev.activeSessionStart,
       activeSessionSubj:prev.activeSessionId===id?null:prev.activeSessionSubj,
       skip:prev.skip.includes(id)?prev.skip:[...prev.skip,id]}));
   }
