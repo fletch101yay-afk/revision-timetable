@@ -22,6 +22,8 @@ const CAL_START   = 6 * 60;
 const CAL_END     = 21 * 60;
 const GUTTER_W    = 52;
 const TODO_COLORS = ['#a78bfa','#34d399','#fb923c','#f472b6','#60a5fa','#facc15'];
+const LS_SID      = 'rt_sid';   // localStorage key: active session id
+const LS_SSTART   = 'rt_sstart'; // localStorage key: active session start ms
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function todayDs() {
@@ -489,8 +491,16 @@ export default function App() {
       s.todos = migrateTodos(s.todos);
       setState(prev=>({...prev,...s}));
       if(s.vd&&s.vd>=START_DATE&&s.vd<=END_DATE) setViewDs(s.vd);
-      if(s.activeSessionId&&s.activeSessionSubj)
-        setActive({id:s.activeSessionId,subj:s.activeSessionSubj,startTime:s.activeSessionStart||Date.now()});
+      if(s.activeSessionId&&s.activeSessionSubj){
+        // Prefer localStorage — written synchronously in handleStart so it's always ahead of
+        // any async save/beacon, and it survives iOS killing the PWA JS context.
+        const lsId=localStorage.getItem(LS_SID);
+        const lsStart=localStorage.getItem(LS_SSTART);
+        const startTime=(lsId===s.activeSessionId&&lsStart)
+          ?parseInt(lsStart,10)
+          :(s.activeSessionStart||Date.now());
+        setActive({id:s.activeSessionId,subj:s.activeSessionSubj,startTime});
+      }
       setLoaded(true);
     }).catch(()=>setLoaded(true));
   },[]);
@@ -593,7 +603,11 @@ export default function App() {
   const handleLogTime=useCallback((item,mins)=>{
     const ms=mins*60*1000;
     const newLastSeen={...stateRef.current.lastSeen,[item.subj]:toEpoch(viewDs,item.end)};
+    // If this was the running session, clear it
+    const wasActive=activeRef.current?.id===item.id;
+    if(wasActive){ localStorage.removeItem(LS_SID); localStorage.removeItem(LS_SSTART); setActive(null); }
     updateState(prev=>({...prev,
+      ...(wasActive?{activeSessionId:null,activeSessionSubj:null,activeSessionStart:null}:{}),
       done:prev.done.includes(item.id)?prev.done:[...prev.done,item.id],
       timers:{...prev.timers,[item.id]:{total:ms}},
       lastSeen:newLastSeen,
@@ -653,11 +667,17 @@ export default function App() {
   function handleStart(item) {
     haptic(50);
     const startTime=Date.now();
+    // Write to localStorage SYNCHRONOUSLY — this happens before React re-renders or any
+    // async save/beacon, so it survives the race where visibilitychange fires before
+    // the React state update has committed to stateRef.current.
+    localStorage.setItem(LS_SID,item.id);
+    localStorage.setItem(LS_SSTART,String(startTime));
     setActive({id:item.id,subj:item.subj,startTime});
     updateState(prev=>({...prev,activeSessionId:item.id,activeSessionSubj:item.subj,activeSessionStart:startTime}));
   }
   function handleStop(item) {
     haptic([40,20,40]); if(!activeSession) return;
+    localStorage.removeItem(LS_SID); localStorage.removeItem(LS_SSTART);
     const elapsed=Date.now()-activeSession.startTime;
     updateState(prev=>({...prev,activeSessionId:null,activeSessionSubj:null,activeSessionStart:null,
       timers:{...prev.timers,[item.id]:{total:(prev.timers[item.id]?.total||0)+elapsed}},
@@ -666,6 +686,7 @@ export default function App() {
   }
   function handleDone(item) {
     haptic([40,20,40]);
+    localStorage.removeItem(LS_SID); localStorage.removeItem(LS_SSTART);
     const elapsed=activeSession?.id===item.id?Date.now()-activeSession.startTime:0;
     updateState(prev=>({...prev,activeSessionId:null,activeSessionSubj:null,activeSessionStart:null,
       done:prev.done.includes(item.id)?prev.done:[...prev.done,item.id],
@@ -674,7 +695,10 @@ export default function App() {
     setActive(null);
   }
   function handleSkip(id) {
-    if(activeSession?.id===id) setActive(null);
+    if(activeSession?.id===id){
+      localStorage.removeItem(LS_SID); localStorage.removeItem(LS_SSTART);
+      setActive(null);
+    }
     updateState(prev=>({...prev,
       activeSessionId:prev.activeSessionId===id?null:prev.activeSessionId,
       activeSessionStart:prev.activeSessionId===id?null:prev.activeSessionStart,
