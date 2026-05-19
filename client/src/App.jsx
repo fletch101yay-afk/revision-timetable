@@ -316,14 +316,21 @@ function UpcomingExams({ now }) {
     <div className="exam-list">
       {upcoming.map(ex=>{
         const d=Math.ceil((toEpoch(ex.date,toMins(ex.start))-now.getTime())/86400000);
+        const urgency=Math.max(0,1-Math.min(d,14)/14);
+        const barColor=d<=2?'#c04838':d<=5?'#c08828':d<=10?'#c0a040':'#888';
         return (
-          <div className="exam-item" key={ex.id}>
-            <div className="exam-dot" style={{ background:COLOURS[ex.subj]||'#888' }} />
-            <div className="exam-info">
-              <div className="exam-info-title">{ex.subj}</div>
-              <div className="exam-info-paper">{ex.paper} · {ex.date} {ex.start}</div>
+          <div className="exam-item" key={ex.id} style={{ flexDirection:'column',alignItems:'stretch',gap:6 }}>
+            <div style={{ display:'flex',alignItems:'center',gap:10 }}>
+              <div className="exam-dot" style={{ background:COLOURS[ex.subj]||'#888' }} />
+              <div className="exam-info">
+                <div className="exam-info-title">{ex.subj}</div>
+                <div className="exam-info-paper">{ex.paper} · {ex.date} {ex.start}</div>
+              </div>
+              <div className={`exam-countdown${d<=3?' soon':''}`}>{d===0?'Today':d===1?'Tomorrow':`${d}d`}</div>
             </div>
-            <div className={`exam-countdown${d<=3?' soon':''}`}>{d===0?'Today':d===1?'Tomorrow':`${d}d`}</div>
+            <div style={{ height:4,borderRadius:2,background:'rgba(255,255,255,0.06)',overflow:'hidden' }}>
+              <div style={{ height:'100%',width:`${Math.max(3,urgency*100)}%`,borderRadius:2,background:`linear-gradient(to right,${barColor},white)`,opacity:0.85 }} />
+            </div>
           </div>
         );
       })}
@@ -614,30 +621,33 @@ export default function App() {
     setEditing(null);
   },[viewDs]);
 
-  // Save edited todo (update todos, regenerate full schedule)
+  // Save edited todo — preserve past sessions
   const handleSaveTodo=useCallback(updated=>{
     const updatedTodos=(stateRef.current.todos||[]).map(t=>t.id!==updated.id?t:{...t,name:updated.name,start:updated.start,end:updated.end,days:updated.days,color:updated.color});
     updateState(prev=>({...prev,todos:updatedTodos}));
     const ws=normalizeWeights(stateRef.current.weights);
-    setSchedule(generateSchedule(viewDs,stateRef.current.lastSeen||{},ws,updatedTodos));
+    const fromMin=viewDs===todayDs()?nowMins():7*60;
+    setSchedule(prev=>resetSchedule(viewDs,fromMin,prev,stateRef.current.lastSeen||{},ws,updatedTodos));
     setEditing(null);
   },[viewDs]); // eslint-disable-line
 
-  // Todo add
+  // Todo add — preserve past sessions
   const handleTodoAdd=useCallback(newTodo=>{
     const todo={id:`td-${Date.now()}`,name:newTodo.name,start:newTodo.start,end:newTodo.end,days:newTodo.days,color:newTodo.color};
     const updatedTodos=[...(stateRef.current.todos||[]),todo];
     updateState(prev=>({...prev,todos:updatedTodos}));
     const ws=normalizeWeights(stateRef.current.weights);
-    setSchedule(generateSchedule(viewDs,stateRef.current.lastSeen||{},ws,updatedTodos));
+    const fromMin=viewDs===todayDs()?nowMins():7*60;
+    setSchedule(prev=>resetSchedule(viewDs,fromMin,prev,stateRef.current.lastSeen||{},ws,updatedTodos));
   },[viewDs]); // eslint-disable-line
 
-  // Todo delete
+  // Todo delete — preserve past sessions
   const handleTodoDelete=useCallback(id=>{
     const updatedTodos=(stateRef.current.todos||[]).filter(t=>t.id!==id);
     updateState(prev=>({...prev,todos:updatedTodos}));
     const ws=normalizeWeights(stateRef.current.weights);
-    setSchedule(generateSchedule(viewDs,stateRef.current.lastSeen||{},ws,updatedTodos));
+    const fromMin=viewDs===todayDs()?nowMins():7*60;
+    setSchedule(prev=>resetSchedule(viewDs,fromMin,prev,stateRef.current.lastSeen||{},ws,updatedTodos));
   },[viewDs]); // eslint-disable-line
 
   // Todo edit from list (open modal with todo's full data)
