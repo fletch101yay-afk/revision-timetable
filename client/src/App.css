@@ -1,0 +1,246 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #111113;
+  color: #e8e8ea;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root { min-height: 100vh; }
+
+.app { max-width: 680px; margin: 0 auto; padding: 12px 12px 80px; }
+
+.dim-text { font-size: 13px; color: #666; }
+
+/* ── Cards ── */
+.card {
+  background: #1c1c1e;
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 10px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+}
+
+/* ── Header ── */
+.header { display: flex; justify-content: space-between; align-items: center; }
+.header-left { font-size: 13px; color: #888; }
+.header-left strong { font-size: 24px; color: #e8e8ea; display: block; }
+.header-right .clock { font-size: 28px; font-weight: 700; color: #e8e8ea; font-variant-numeric: tabular-nums; }
+
+/* ── Progress ── */
+.progress-section { margin-top: 12px; }
+.progress-label { font-size: 12px; color: #888; margin-bottom: 5px; display: flex; justify-content: space-between; }
+.progress-bar { height: 5px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden; margin-bottom: 6px; }
+.progress-fill { height: 100%; border-radius: 3px; transition: width 0.4s ease; }
+
+/* ── Day nav ── */
+.day-nav { display: flex; align-items: center; justify-content: space-between; }
+.day-nav button {
+  background: none; border: none; cursor: pointer; font-size: 22px; padding: 8px 12px;
+  border-radius: 10px; color: #888; min-width: 44px; min-height: 44px;
+  display: flex; align-items: center; justify-content: center; transition: background 0.15s;
+}
+.day-nav button:hover { background: rgba(255,255,255,0.06); }
+.day-nav button:disabled { opacity: 0.2; cursor: default; }
+.date-display { text-align: center; }
+.date-main { font-size: 17px; font-weight: 600; color: #e8e8ea; }
+.date-sub { font-size: 12px; color: #888; margin-top: 2px; }
+
+/* ── Section header ── */
+.section-header { font-size: 11px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 12px; }
+
+/* ── Restart button ── */
+.btn-restart {
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+  color: #999; border-radius: 8px; padding: 0 12px; height: 32px;
+  font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.15s, color 0.15s;
+}
+.btn-restart:hover { background: rgba(255,255,255,0.1); color: #e8e8ea; }
+
+/* ── Calendar scroll ── */
+.cal-scroll {
+  height: 480px; overflow-y: auto; overflow-x: hidden;
+  scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.1) transparent;
+}
+.cal-scroll::-webkit-scrollbar { width: 4px; }
+.cal-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+
+/* Calendar action buttons */
+.cal-btn {
+  border: none; cursor: pointer; border-radius: 6px;
+  font-size: 12px; font-weight: 600; padding: 0 10px; height: 28px;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: opacity 0.15s, transform 0.1s; white-space: nowrap;
+}
+.cal-btn:active { transform: scale(0.93); }
+.cal-btn-start { background: rgba(255,255,255,0.13); color: #e8e8ea; border: 1px solid rgba(255,255,255,0.18); }
+.cal-btn-stop  { background: rgba(0,0,0,0.22); color: #fff; border: 1px solid rgba(255,255,255,0.22); }
+.cal-btn-done  { background: rgba(0,0,0,0.22); color: #fff; border: 1px solid rgba(255,255,255,0.22); }
+.cal-btn-skip  { background: rgba(0,0,0,0.18); color: rgba(255,255,255,0.55); border: 1px solid rgba(255,255,255,0.1); }
+
+/* ── Shared button ── */
+.btn {
+  border: none; cursor: pointer; border-radius: 8px; font-size: 13px; font-weight: 600;
+  padding: 0 16px; height: 36px; min-height: 44px;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: opacity 0.15s, transform 0.1s;
+}
+.btn:active { transform: scale(0.96); }
+.btn-primary { background: #c08828; color: #fff; }
+.btn-primary:hover { background: #d09830; }
+.btn-primary:disabled { opacity: 0.35; cursor: default; }
+
+/* ── Priority bars ── */
+.pri-bars { display: flex; flex-direction: column; gap: 8px; }
+.pri-row { display: flex; align-items: center; gap: 10px; }
+.pri-label { width: 130px; font-size: 12px; font-weight: 500; color: #999; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pri-bar-bg { flex: 1; height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden; }
+.pri-bar-fill { height: 100%; border-radius: 3px; transition: width 0.4s ease; }
+.pri-val { width: 36px; text-align: right; font-size: 12px; color: #777; flex-shrink: 0; }
+
+/* ── Sliders ── */
+.sliders { display: flex; flex-direction: column; gap: 12px; }
+.slider-row { display: flex; align-items: center; gap: 10px; }
+.slider-label { width: 80px; font-size: 13px; font-weight: 500; color: #999; flex-shrink: 0; }
+.slider-input { flex: 1; height: 4px; border-radius: 2px; accent-color: #c08828; cursor: pointer; }
+.slider-val { width: 28px; text-align: right; font-size: 13px; color: #e8e8ea; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+
+/* ── Upcoming exams ── */
+.exam-list { display: flex; flex-direction: column; gap: 9px; }
+.exam-item { display: flex; align-items: center; gap: 10px; }
+.exam-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.exam-info { flex: 1; }
+.exam-info-title { font-size: 13px; font-weight: 600; color: #e8e8ea; }
+.exam-info-paper { font-size: 12px; color: #777; }
+.exam-countdown { font-size: 12px; font-weight: 600; color: #888; flex-shrink: 0; }
+.exam-countdown.soon { color: #c04838; }
+
+/* ── Todo list ── */
+.todo-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.todo-item {
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 10px; padding: 8px 10px;
+}
+.todo-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.todo-info { flex: 1; min-width: 0; }
+.todo-name { font-size: 13px; font-weight: 600; color: #e8e8ea; }
+.todo-meta { font-size: 11px; color: #777; margin-top: 1px; }
+.todo-edit-btn {
+  background: none; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px;
+  color: #999; cursor: pointer; font-size: 11px; padding: 2px 8px; height: 26px;
+  display: flex; align-items: center; transition: background 0.15s;
+}
+.todo-edit-btn:hover { background: rgba(255,255,255,0.08); color: #e8e8ea; }
+.todo-delete {
+  background: none; border: none; cursor: pointer; font-size: 18px; color: #555;
+  line-height: 1; padding: 0 4px; min-width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center; border-radius: 6px;
+}
+.todo-delete:hover { background: rgba(180,60,40,0.15); color: #c04838; }
+
+.add-task-btn {
+  width: 100%; background: rgba(255,255,255,0.04); border: 1px dashed rgba(255,255,255,0.12);
+  border-radius: 10px; color: #999; font-size: 13px; font-weight: 600;
+  padding: 10px; cursor: pointer; transition: background 0.15s, color 0.15s;
+}
+.add-task-btn:hover { background: rgba(255,255,255,0.08); color: #e8e8ea; }
+.add-task-form { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
+
+/* ── Day/color pickers ── */
+.days-picker { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.day-chip {
+  width: 36px; height: 36px; border-radius: 50%;
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+  color: #888; cursor: pointer; font-size: 11px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; transition: background 0.15s, color 0.15s;
+}
+.day-chip.active { background: #c08828; border-color: #c08828; color: #fff; }
+.color-picker { display: flex; gap: 8px; margin-top: 4px; }
+.color-swatch {
+  width: 28px; height: 28px; border-radius: 50%; border: 2px solid transparent;
+  cursor: pointer; transition: transform 0.15s, border-color 0.15s;
+}
+.color-swatch.active { border-color: #e8e8ea; transform: scale(1.2); }
+
+/* ── Modal ── */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.75);
+  backdrop-filter: blur(4px); z-index: 100;
+  display: flex; align-items: flex-end; justify-content: center; padding: 16px;
+}
+@media (min-width: 480px) { .modal-overlay { align-items: center; } }
+.modal-box {
+  background: #242424; border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 18px; padding: 20px; width: 100%; max-width: 400px;
+  display: flex; flex-direction: column; gap: 14px;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.65);
+}
+.modal-title { font-size: 16px; font-weight: 700; color: #e8e8ea; }
+.modal-field { display: flex; flex-direction: column; gap: 5px; }
+.modal-field label { font-size: 12px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 0.05em; }
+.modal-hint { font-weight: 400; font-style: italic; text-transform: none; letter-spacing: 0; }
+.modal-input {
+  background: #2a2a2a; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px;
+  color: #e8e8ea; font-size: 14px; padding: 8px 12px; font-family: inherit;
+  outline: none; width: 100%;
+}
+.modal-input:focus { border-color: #c08828; }
+.modal-row-2 { display: flex; gap: 10px; }
+.modal-row-2 .modal-field { flex: 1; }
+.modal-error { font-size: 12px; color: #c04838; }
+.recur-label { display: flex; align-items: center; font-size: 14px; color: #999; cursor: pointer; }
+.modal-actions { display: flex; gap: 8px; margin-top: 2px; }
+.modal-btn { flex: 1; height: 44px; border-radius: 10px; font-size: 14px; font-weight: 700; border: none; cursor: pointer; transition: opacity 0.15s; }
+.modal-btn-cancel { background: rgba(255,255,255,0.08); color: #999; }
+.modal-btn-save { background: #c08828; color: #fff; }
+.modal-btn-save:hover { background: #d09830; }
+.modal-btn-save:disabled { opacity: 0.35; cursor: default; }
+
+/* ── iPhone panel ── */
+.iphone-toggle {
+  width: 100%; background: none; border: none; text-align: left; cursor: pointer;
+  font-size: 14px; font-weight: 600; color: #999; padding: 0;
+  display: flex; justify-content: space-between; transition: color 0.15s;
+}
+.iphone-toggle:hover { color: #e8e8ea; }
+.iphone-body { margin-top: 14px; display: flex; flex-direction: column; gap: 14px; }
+.iphone-step {
+  display: flex; gap: 12px; align-items: flex-start;
+  font-size: 13px; color: #999; line-height: 1.6;
+}
+.iphone-step-num {
+  width: 24px; height: 24px; border-radius: 50%; background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15); color: #c08828;
+  font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; margin-top: 1px;
+}
+.iphone-step strong { color: #e8e8ea; }
+.iphone-step em { color: #c08828; font-style: normal; font-weight: 600; }
+.iphone-code-row {
+  display: flex; gap: 6px; align-items: stretch; margin-top: 6px; margin-bottom: 4px;
+}
+.iphone-code-row code {
+  flex: 1; display: block; background: #2a2a2a; border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px; padding: 8px 10px; font-family: monospace; font-size: 12px;
+  color: #c08828; word-break: break-all; line-height: 1.5;
+}
+.copy-btn {
+  background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px; color: #c08828; font-size: 12px; font-weight: 600;
+  padding: 0 10px; cursor: pointer; white-space: nowrap; flex-shrink: 0;
+  transition: background 0.15s;
+}
+.copy-btn:hover { background: rgba(255,255,255,0.14); }
+
+/* ── Responsive ── */
+@media (max-width: 420px) {
+  .app { padding: 8px 8px 80px; }
+  .card { border-radius: 12px; padding: 12px; }
+  .cal-scroll { height: 420px; }
+  .slider-label { width: 66px; font-size: 12px; }
+  .pri-label { width: 100px; }
+}
