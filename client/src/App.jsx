@@ -417,100 +417,37 @@ function TodoList({ todos, onAdd, onDelete, onEdit }) {
   );
 }
 
-// ── iPhone instructions ───────────────────────────────────────────────────────
-function IphonePanel({ onApplyId }) {
-  const [ips, setIps]       = useState([]);
-  const [open, setOpen]     = useState(false);
-  const [copied, setCopied] = useState('');
-  const [customId, setCustomId] = useState(USER_ID);
-
-  useEffect(() => {
-    fetch('/api/ip').then(r=>r.json()).then(d=>setIps(d.addresses||[])).catch(()=>{});
-  }, []);
-
-  function copy(text, key) {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(key); setTimeout(() => setCopied(''), 2000);
-    }).catch(() => {});
-  }
-
-  function applyId() {
-    const safe = customId.trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24);
-    if (!safe || safe === USER_ID) return;
-    onApplyId(safe);
-  }
-
-  const fwCmd = 'netsh advfirewall firewall add rule name="RevisionApp" dir=in action=allow protocol=TCP localport=3001';
-
+// ── LogTimeModal ──────────────────────────────────────────────────────────────
+function LogTimeModal({ item, onLog, onClose }) {
+  const scheduled = item.end - item.start;
+  const [mins, setMins] = useState(String(scheduled));
+  const m = parseInt(mins, 10);
+  const valid = m >= 1 && m <= 480;
   return (
-    <div className="card">
-      <button className="iphone-toggle" onClick={()=>setOpen(o=>!o)}>
-        iPhone / tablet access &nbsp;{open?'▲':'▼'}
-      </button>
-      {open&&(
-        <div className="iphone-body">
-
-          <div className="iphone-step">
-            <span className="iphone-step-num">1</span>
-            <div>
-              <strong>Same Wi-Fi</strong> — connect your phone to the same network as this computer.
-              <br/><span style={{color:'#777',fontSize:12}}>You can only access this when on the same Wi-Fi. It won't work over mobile data or a different network.</span>
-            </div>
-          </div>
-
-          <div className="iphone-step">
-            <span className="iphone-step-num">2</span>
-            <div>
-              <strong>Open Windows Firewall</strong> — run PowerShell <em>as Administrator</em> and paste this:
-              <div className="iphone-code-row">
-                <code>{fwCmd}</code>
-                <button className="copy-btn" onClick={()=>copy(fwCmd,'fw')}>{copied==='fw'?'✓ Copied':'Copy'}</button>
-              </div>
-              <span style={{color:'#777',fontSize:12}}>Right-click the Start button → "Windows PowerShell (Admin)" → paste → Enter. Only need to do this once.</span>
-            </div>
-          </div>
-
-          <div className="iphone-step">
-            <span className="iphone-step-num">3</span>
-            <div>
-              <strong>Set a short sync code</strong> — replace the random ID with something easy to type on your phone:
-              <div style={{display:'flex',gap:6,marginTop:6,marginBottom:4}}>
-                <input className="modal-input" style={{flex:1,height:36,fontSize:13}} value={customId} onChange={e=>setCustomId(e.target.value)} placeholder="e.g. hugo" />
-                <button className="copy-btn" style={{background:customId.trim()&&customId.trim()!==USER_ID?'rgba(192,136,40,0.25)':'rgba(255,255,255,0.06)'}} onClick={applyId}>Apply</button>
-              </div>
-              <span style={{color:'#777',fontSize:12}}>Clicking Apply saves your data under the new code and reloads the page. Your phone must use the same code in the URL.</span>
-            </div>
-          </div>
-
-          <div className="iphone-step">
-            <span className="iphone-step-num">4</span>
-            <div>
-              <strong>Open this link on your iPhone</strong> — it includes your sync code so data is shared:
-              {ips.length>0 ? ips.map(ip=>{
-                const url=`http://${ip}:3001/?uid=${USER_ID}`;
-                return (
-                  <div key={ip} className="iphone-code-row">
-                    <code>{url}</code>
-                    <button className="copy-btn" onClick={()=>copy(url,ip)}>{copied===ip?'✓ Copied':'Copy'}</button>
-                  </div>
-                );
-              }) : (
-                <div className="iphone-code-row">
-                  <code>http://[your-pc-ip]:3001/?uid={USER_ID}</code>
-                </div>
-              )}
-              <span style={{color:'#777',fontSize:12}}>The <code style={{display:'inline',fontSize:11,padding:'1px 4px'}}>?uid=…</code> part is your sync code — without it, your phone won't see your computer's data.</span>
-            </div>
-          </div>
-
-          <div className="iphone-step">
-            <span className="iphone-step-num">5</span>
-            <div>
-              <strong>Bookmark it</strong> — tap Share → "Add to Home Screen" in Safari for easy access.
-            </div>
-          </div>
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e=>e.stopPropagation()}>
+        <div className="modal-title">{item.label}</div>
+        <div className="modal-field">
+          <label>Minutes you studied</label>
+          <input
+            className="modal-input"
+            type="number" min="1" max="480"
+            value={mins}
+            onChange={e=>setMins(e.target.value)}
+            onKeyDown={e=>e.key==='Enter'&&valid&&onLog(item,m)}
+            autoFocus
+          />
         </div>
-      )}
+        <div style={{ fontSize:12,color:'#666' }}>
+          Scheduled {item.startFmt}–{item.endFmt} · {scheduled} min
+        </div>
+        <div className="modal-actions">
+          <button className="modal-btn modal-btn-cancel" onClick={onClose}>Cancel</button>
+          <button className="modal-btn modal-btn-save" disabled={!valid} onClick={()=>onLog(item,m)}>
+            Log &amp; Done
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -528,6 +465,7 @@ export default function App() {
   const [todaySchedule, setTodaySch]= useState([]);
   const [priorities, setPriorities] = useState([]);
   const [editingItem, setEditing]   = useState(null);
+  const [logItem, setLogItem]       = useState(null);
 
   const stateRef      = useRef(state);
   const activeRef     = useRef(activeSession);
@@ -646,8 +584,23 @@ export default function App() {
 
   // Block click → open modal
   const handleBlockClick=useCallback(item=>{
-    setEditing(item);
+    if (item.type==='study') setLogItem(item);
+    else setEditing(item);
   },[]);
+
+  // Log time for a session done without the timer
+  const handleLogTime=useCallback((item,mins)=>{
+    const ms=mins*60*1000;
+    const newLastSeen={...stateRef.current.lastSeen,[item.subj]:toEpoch(viewDs,item.end)};
+    updateState(prev=>({...prev,
+      done:prev.done.includes(item.id)?prev.done:[...prev.done,item.id],
+      timers:{...prev.timers,[item.id]:{total:ms}},
+      lastSeen:newLastSeen,
+    }));
+    const ws=normalizeWeights(stateRef.current.weights);
+    setSchedule(prev=>resetSchedule(viewDs,item.end,prev,newLastSeen,ws,stateRef.current.todos||[]));
+    setLogItem(null);
+  },[viewDs]); // eslint-disable-line
 
   // Save edited study session (reset from min(newStart, oldStart))
   const handleSaveSession=useCallback((id,newStart,newEnd)=>{
@@ -691,14 +644,6 @@ export default function App() {
   const handleTodoEditFromList=useCallback(todo=>{
     setEditing({...todo,type:'todo',label:todo.name});
   },[]);
-
-  // Apply custom sync ID — copies current data to new ID then reloads
-  const handleApplyId=useCallback(newId=>{
-    const snap=buildSnap();
-    fetch(`/api/state?uid=${newId}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(snap)})
-      .then(()=>{ window.location.href=`/?uid=${newId}`; })
-      .catch(()=>{ window.location.href=`/?uid=${newId}`; });
-  },[buildSnap]);
 
   // Session actions
   function handleStart(item) {
@@ -745,6 +690,9 @@ export default function App() {
       {editingItem&&(
         <EditModal item={editingItem} onSaveSession={handleSaveSession} onSaveTodo={handleSaveTodo} onClose={()=>setEditing(null)} />
       )}
+      {logItem&&(
+        <LogTimeModal item={logItem} onLog={handleLogTime} onClose={()=>setLogItem(null)} />
+      )}
 
       {/* Header */}
       <div className="card">
@@ -780,7 +728,7 @@ export default function App() {
           <div className="section-header" style={{ margin:0 }}>Schedule</div>
           <button className="btn-restart" onClick={handleRestart}>↺ Reset from now</button>
         </div>
-        <p className="dim-text" style={{ fontSize:11,marginBottom:8 }}>Tap a session or task to edit its time.</p>
+        <p className="dim-text" style={{ fontSize:11,marginBottom:8 }}>Tap a study session to log time · tap a task to edit.</p>
         {schedule.length===0
           ? <p className="dim-text">No sessions scheduled.</p>
           : <CalendarView schedule={schedule} state={state} activeSession={activeSession} now={now}
@@ -814,8 +762,6 @@ export default function App() {
         <TodoList todos={state.todos||[]} onAdd={handleTodoAdd} onDelete={handleTodoDelete} onEdit={handleTodoEditFromList} />
       </div>
 
-      {/* iPhone */}
-      <IphonePanel onApplyId={handleApplyId} />
     </div>
   );
 }
