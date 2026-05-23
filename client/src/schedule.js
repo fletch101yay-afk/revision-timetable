@@ -68,16 +68,43 @@ function calcPri(subj, ds, curMinutes, lastSessionMs, weights = DEFAULT_WEIGHTS)
   return Math.round((urg * w.urgency + rec * w.recency + DIFF[subj] * w.difficulty + (ALEV.has(subj) ? 100 : 0) * w.alevel) * 10) / 10;
 }
 
-function getSessionDur(subj, ds, curMinutes, maxLen, spanishIdx) {
+// Session duration with variety — no more giant 105-min blocks
+function getSessionDur(subj, ds, curMinutes, maxLen, sessionIdx, spanishIdx) {
   if (subj === "Spanish") return Math.min([40, 45, 50][spanishIdx % 3], maxLen);
+
   const ce = toEpoch(ds, curMinutes);
   const next = EXAMS
-    .filter(e => e.subj === subj && toEpoch(e.date, toMins(e.start)) > ce)
+    .filter(e => e.subj === subj && toEpoch(e.date, toMins(e.end)) > ce)
     .sort((a, b) => toEpoch(a.date, toMins(a.start)) - toEpoch(b.date, toMins(b.start)))[0];
+
   if (!next) return Math.min(45, maxLen);
+
   const hrs = (toEpoch(next.date, toMins(next.start)) - ce) / 3600000;
-  const base = hrs <= 12 ? 44 : hrs <= 24 ? 54 : hrs <= 36 ? 64 : hrs <= 72 ? 78 : hrs <= 168 ? 90 : 105;
-  return Math.min(base, maxLen);
+  // Base duration — capped lower than before
+  const base = hrs <= 12 ? 38 : hrs <= 24 ? 47 : hrs <= 48 ? 55 : hrs <= 96 ? 62 : 68;
+
+  // Cycle through variety: 0, -10, -5 so sessions feel different lengths
+  const variation = [0, -10, -5][sessionIdx % 3];
+
+  return Math.min(Math.max(35, base + variation), maxLen);
+}
+
+// How long a gap to leave after a study session (smart breaks)
+function gapAfter(studyStreakMins, hasExamToday, hasExamTomorrow, hadExamYesterday) {
+  // Night before exam: keep going, minimal gaps — you need the time
+  if (hasExamTomorrow) return 5;
+  // Day of exam: short bursts with brief recovery gaps
+  if (hasExamToday) return 10;
+  // Recovery day after exam: more generous rest
+  if (hadExamYesterday) {
+    if (studyStreakMins >= 50) return 20;
+    if (studyStreakMins >= 30) return 15;
+    return 10;
+  }
+  // Normal day: break after long stretches, small gap otherwise
+  if (studyStreakMins >= 85) return 18;
+  if (studyStreakMins >= 60) return 12;
+  return 5;
 }
 
 function dowOf(ds) {
@@ -89,10 +116,13 @@ function dowOf(ds) {
 function buildDayMeta(ds, userTodos = []) {
   const todayExams = EXAMS.filter(e => e.date === ds).sort((a, b) => toMins(a.start) - toMins(b.start));
   const tomorrowExams = EXAMS.filter(e => e.date === addDays(ds, 1));
+  const yesterdayExams = EXAMS.filter(e => e.date === addDays(ds, -1));
   const hasExamToday = todayExams.length > 0;
   const hasExamTomorrow = tomorrowExams.length > 0;
+  const hadExamYesterday = yesterdayExams.length > 0;
 
-  const maxLen = hasExamToday ? 50 : hasExamTomorrow ? 65 : 115;
+  // Session length caps — no more 1h40 marathons
+  const maxLen = hasExamToday ? 45 : hasExamTomorrow ? 62 : 72;
   const dayEnd = hasExamTomorrow ? 21 * 60 : 20 * 60;
   const dayStart = 6 * 60 + 20;
 
@@ -140,17 +170,18 @@ function buildDayMeta(ds, userTodos = []) {
   }
 
   fixed.sort((a, b) => a.start - b.start);
-  return { fixed, dayEnd, maxLen, dayStart };
+  return { fixed, dayEnd, maxLen, dayStart, hasExamToday, hasExamTomorrow, hadExamYesterday };
 }
 
 export function generateSchedule(ds, lastSeen = {}, weights = DEFAULT_WEIGHTS, userTodos = []) {
-  const { fixed, dayEnd, maxLen, dayStart } = buildDayMeta(ds, userTodos);
+  const { fixed, dayEnd, maxLen, dayStart, hasExamToday, hasExamTomorrow, hadExamYesterday } = buildDayMeta(ds, userTodos);
 
   const result = [];
   const lsNow = { ...lastSeen };
   let sessionIdx = 0;
   let spanishIdx = 0;
   let cursor = dayStart;
+  let studyStreak = 0;
 
   const getActiveFixed = (at) => fixed.find(b => b.start <= at && at < b.end);
   const getNextFixed = (from) => fixed.filter(b => b.start > from).sort((a, b) => a.start - b.start)[0];
@@ -160,6 +191,7 @@ export function generateSchedule(ds, lastSeen = {}, weights = DEFAULT_WEIGHTS, u
     if (af) {
       result.push({ ...af, startFmt: fmtTime(af.start), endFmt: fmtTime(af.end) });
       cursor = af.end;
+      studyStreak = 0; // fixed block counts as a break
       continue;
     }
 
@@ -175,7 +207,7 @@ export function generateSchedule(ds, lastSeen = {}, weights = DEFAULT_WEIGHTS, u
     if (!pris.length) { cursor = freeUntil; continue; }
 
     const { subj } = pris[0];
-    const dur = getSessionDur(subj, ds, cursor, maxLen, spanishIdx);
+    const dur = getSessionDur(subj, ds, cursor, maxLen, sessionIdx, spanishIdx);
     if (subj === 'Spanish') spanishIdx++;
 
     const actualDur = Math.min(dur, freeUntil - cursor);
@@ -185,28 +217,41 @@ export function generateSchedule(ds, lastSeen = {}, weights = DEFAULT_WEIGHTS, u
     result.push({ type: 'study', id, subj, label: subj, start: cursor, end: cursor + actualDur, startFmt: fmtTime(cursor), endFmt: fmtTime(cursor + actualDur), duration: actualDur });
 
     lsNow[subj] = toEpoch(ds, cursor + actualDur);
+    studyStreak += actualDur;
+
+    // Dynamic gap / break
+    const gap = gapAfter(studyStreak, hasExamToday, hasExamTomorrow, hadExamYesterday);
+    if (gap >= 12) studyStreak = 0; // real break resets streak
+
     cursor += actualDur;
-    if (cursor + 5 <= freeUntil) cursor += 5;
+    if (cursor + gap <= freeUntil) cursor += gap;
   }
 
   return result;
 }
 
 export function resetSchedule(ds, fromMinutes, existingSchedule, lastSeen, weights = DEFAULT_WEIGHTS, userTodos = []) {
-  const { fixed, dayEnd, maxLen } = buildDayMeta(ds, userTodos);
+  const { fixed, dayEnd, maxLen, hasExamToday, hasExamTomorrow, hadExamYesterday } = buildDayMeta(ds, userTodos);
   const allFixed = fixed.map(b => ({ ...b, startFmt: fmtTime(b.start), endFmt: fmtTime(b.end) }));
 
-  const beforeCut = existingSchedule.filter(item => item.end <= fromMinutes);
-  const futureFixed = allFixed.filter(b => b.end > fromMinutes);
+  // Keep sessions fully in the past AND any ongoing session straddling the cut
+  const ongoingStudy = existingSchedule.find(item =>
+    item.type === 'study' && item.start < fromMinutes && item.end > fromMinutes
+  );
+  const beforeCut = existingSchedule.filter(item =>
+    item.end <= fromMinutes ||
+    (ongoingStudy && item.id === ongoingStudy.id)
+  );
 
   const lsNow = { ...lastSeen };
   beforeCut.filter(i => i.type === 'study').forEach(i => {
     if (!lsNow[i.subj] || lsNow[i.subj] < toEpoch(ds, i.end)) lsNow[i.subj] = toEpoch(ds, i.end);
   });
 
-  let cursor = fromMinutes;
-  const activeFixed = allFixed.find(b => b.start <= fromMinutes && fromMinutes < b.end);
-  if (activeFixed) cursor = activeFixed.end;
+  // Start cursor after the ongoing session (if any) or at fromMinutes
+  let cursor = ongoingStudy ? ongoingStudy.end : fromMinutes;
+  const activeF = allFixed.find(b => b.start <= cursor && cursor < b.end);
+  if (activeF) cursor = activeF.end;
 
   const getActiveF = (at) => allFixed.find(b => b.start <= at && at < b.end);
   const getNextF = (from) => allFixed.filter(b => b.start > from).sort((a, b) => a.start - b.start)[0];
@@ -214,10 +259,11 @@ export function resetSchedule(ds, fromMinutes, existingSchedule, lastSeen, weigh
   const newStudy = [];
   let sessionIdx = 1000;
   let spanishIdx = 0;
+  let studyStreak = 0;
 
   while (cursor < dayEnd) {
     const af = getActiveF(cursor);
-    if (af) { cursor = af.end; continue; }
+    if (af) { cursor = af.end; studyStreak = 0; continue; }
 
     const nf = getNextF(cursor);
     const freeUntil = nf ? nf.start : dayEnd;
@@ -231,7 +277,7 @@ export function resetSchedule(ds, fromMinutes, existingSchedule, lastSeen, weigh
     if (!pris.length) { cursor = freeUntil; continue; }
 
     const { subj } = pris[0];
-    const dur = getSessionDur(subj, ds, cursor, maxLen, spanishIdx);
+    const dur = getSessionDur(subj, ds, cursor, maxLen, sessionIdx, spanishIdx);
     if (subj === 'Spanish') spanishIdx++;
     const actualDur = Math.min(dur, freeUntil - cursor);
     if (actualDur < 15) { cursor = freeUntil; continue; }
@@ -240,9 +286,17 @@ export function resetSchedule(ds, fromMinutes, existingSchedule, lastSeen, weigh
     newStudy.push({ type: 'study', id, subj, label: subj, start: cursor, end: cursor + actualDur, startFmt: fmtTime(cursor), endFmt: fmtTime(cursor + actualDur), duration: actualDur });
 
     lsNow[subj] = toEpoch(ds, cursor + actualDur);
+    studyStreak += actualDur;
+
+    const gap = gapAfter(studyStreak, hasExamToday, hasExamTomorrow, hadExamYesterday);
+    if (gap >= 12) studyStreak = 0;
+
     cursor += actualDur;
-    if (cursor + 5 <= freeUntil) cursor += 5;
+    if (cursor + gap <= freeUntil) cursor += gap;
   }
+
+  // Fixed blocks for the future portion
+  const futureFixed = allFixed.filter(b => b.end > fromMinutes && !(ongoingStudy && b.id === ongoingStudy?.id));
 
   return [...beforeCut, ...futureFixed, ...newStudy].sort((a, b) => a.start - b.start);
 }

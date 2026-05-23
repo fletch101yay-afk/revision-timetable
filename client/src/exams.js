@@ -1,4 +1,5 @@
 export const EXAMS = [
+  {id:"e0",  date:"2026-04-30", subj:"Spanish",              paper:"Speaking",             start:"09:00", end:"09:30", seat:""},
   {id:"e1",  date:"2026-05-08", subj:"English Literature",   paper:"Poetry & Prose",       start:"09:00", end:"10:30", seat:"D5"},
   {id:"e2",  date:"2026-05-11", subj:"English Literature",   paper:"Drama (Open Text)",    start:"09:00", end:"09:45", seat:"D5"},
   {id:"e3",  date:"2026-05-11", subj:"English Literature",   paper:"Unseen",               start:"10:00", end:"11:15", seat:"D5"},

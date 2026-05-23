@@ -22,8 +22,8 @@ const CAL_START   = 6 * 60;
 const CAL_END     = 21 * 60;
 const GUTTER_W    = 52;
 const TODO_COLORS = ['#a78bfa','#34d399','#fb923c','#f472b6','#60a5fa','#facc15'];
-const LS_SID      = 'rt_sid';   // localStorage key: active session id
-const LS_SSTART   = 'rt_sstart'; // localStorage key: active session start ms
+const LS_SID      = 'rt_sid';
+const LS_SSTART   = 'rt_sstart';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function todayDs() {
@@ -49,6 +49,20 @@ function fromTimeStr(str) { const [h,m]=str.split(':').map(Number); return h*60+
 function migrateTodos(raw) {
   if (!raw || raw.length === 0 || typeof raw[0] === 'string') return [...DEFAULT_TODOS];
   return raw.map(t => ({ ...t, days: Array.isArray(t.days) ? t.days : [] }));
+}
+// Compute minutes studied for a set of sessions, accounting for active session live time
+function computeMinsStudied(sessions, done, timers, activeSession, now) {
+  return sessions.reduce((acc, s) => {
+    const isActive = activeSession?.id === s.id;
+    const spentMs = (timers[s.id]?.total || 0) + (isActive ? now.getTime() - activeSession.startTime : 0);
+    const spentMins = spentMs / 60000;
+    const scheduled = s.end - s.start;
+    if (done.includes(s.id) || isActive) {
+      return acc + (spentMs > 0 ? Math.min(scheduled, spentMins) : (done.includes(s.id) ? scheduled : 0));
+    }
+    if (spentMs > 0) return acc + Math.min(scheduled, spentMins);
+    return acc;
+  }, 0);
 }
 
 // ── API ───────────────────────────────────────────────────────────────────────
@@ -139,9 +153,10 @@ function EditModal({ item, onSaveSession, onSaveTodo, onClose }) {
 }
 
 // ── CalendarView ──────────────────────────────────────────────────────────────
-function CalendarView({ schedule, state, activeSession, now, viewDs, onStart, onStop, onDone, onSkip, onBlockClick, editingId }) {
+function CalendarView({ schedule, state, activeSession, now, viewDs, onStart, onStop, onDone, onBlockClick, editingId }) {
   const containerRef = useRef(null);
-  const isToday = viewDs === todayDs();
+  const today = todayDs();
+  const isToday = viewDs === today;
   const curMins = now.getHours()*60 + now.getMinutes();
 
   useEffect(() => {
@@ -174,9 +189,29 @@ function CalendarView({ schedule, state, activeSession, now, viewDs, onStart, on
     const height=Math.max((ce-cs)*PX_PER_MIN,24);
 
     const isDone    = item.type==='study' && state.done.includes(item.id);
-    const isSkipped = item.type==='study' && state.skip.includes(item.id);
     const isRunning = item.type==='study' && activeSession?.id===item.id;
     const isEditing = editingId===item.id;
+
+    // Time-based opacity for past study sessions
+    const isPast = item.type==='study' && (viewDs < today || (viewDs === today && item.end <= curMins));
+    let opacity = 1;
+    if (isPast && !isRunning) {
+      const scheduled = item.end - item.start;
+      const spentMs = state.timers[item.id]?.total || 0;
+      const spentMins = spentMs / 60000;
+      if (isDone) {
+        // Completed — use timer ratio or assume full if no timer data
+        const ratio = spentMs > 0 ? Math.min(1, spentMins / scheduled) : 1;
+        opacity = 0.18 + ratio * 0.82;
+      } else if (spentMs > 0) {
+        // Partially done (timer used but not marked done)
+        const ratio = Math.min(1, spentMins / scheduled);
+        opacity = 0.18 + ratio * 0.82;
+      } else {
+        // Missed — barely visible
+        opacity = 0.13;
+      }
+    }
 
     const elapsed = item.type==='study'
       ? (state.timers[item.id]?.total||0)+(isRunning?(now.getTime()-activeSession.startTime):0)
@@ -205,12 +240,12 @@ function CalendarView({ schedule, state, activeSession, now, viewDs, onStart, on
           position:'absolute',top,left:GUTTER_W+4,right:4,height,
           background:bg,border,borderRadius:8,color:textCol,
           overflow:'hidden',zIndex:isRunning?10:5,
-          opacity:isDone?0.4:isSkipped?0.28:1,
+          opacity,
           display:'flex',alignItems:'center',
           cursor:clickable?'pointer':'default',
           outline:isEditing?'2px solid rgba(255,255,255,0.45)':'none',
           outlineOffset:1,
-          transition:'opacity 0.2s,outline 0.1s',
+          transition:'opacity 0.3s,outline 0.1s',
           padding:'0 6px',gap:6,
         }}
       >
@@ -228,24 +263,18 @@ function CalendarView({ schedule, state, activeSession, now, viewDs, onStart, on
             <div style={{ fontSize:12,fontWeight:700,marginTop:2,fontVariantNumeric:'tabular-nums' }}>{fmtMs(elapsed)}</div>
           )}
         </div>
-        {/* Action buttons on the right */}
-        {item.type==='study'&&!isDone&&!isSkipped&&(
+        {/* Action buttons — no skip button */}
+        {item.type==='study'&&!isDone&&!isPast&&(
           <div style={{ display:'flex',gap:3,flexShrink:0,alignItems:'center' }}>
             {!isRunning?(
-              <>
-                <button className="cal-btn cal-btn-start" style={{ padding:'0 8px',height:26,fontSize:11 }}
-                  onClick={e=>{e.stopPropagation();onStart(item);}}>▶</button>
-                <button className="cal-btn cal-btn-skip" style={{ padding:'0 6px',height:26,fontSize:11 }}
-                  onClick={e=>{e.stopPropagation();onSkip(item.id);}}>Skip</button>
-              </>
+              <button className="cal-btn cal-btn-start" style={{ padding:'0 8px',height:26,fontSize:11 }}
+                onClick={e=>{e.stopPropagation();onStart(item);}}>▶</button>
             ):(
               <>
                 <button className="cal-btn cal-btn-stop" style={{ padding:'0 6px',height:26,fontSize:11 }}
                   onClick={e=>{e.stopPropagation();onStop(item);}}>■</button>
                 <button className="cal-btn cal-btn-done" style={{ padding:'0 6px',height:26,fontSize:11 }}
                   onClick={e=>{e.stopPropagation();onDone(item);}}>Done</button>
-                <button className="cal-btn cal-btn-skip" style={{ padding:'0 6px',height:26,fontSize:11 }}
-                  onClick={e=>{e.stopPropagation();onSkip(item.id);}}>Skip</button>
               </>
             )}
           </div>
@@ -361,7 +390,6 @@ function TodoList({ todos, onAdd, onDelete, onEdit }) {
 
   return (
     <div>
-      {/* Existing todos */}
       <div className="todo-list">
         {todos.map(t=>(
           <div className="todo-item" key={t.id}>
@@ -380,8 +408,6 @@ function TodoList({ todos, onAdd, onDelete, onEdit }) {
         ))}
         {!todos.length&&<p className="dim-text" style={{ marginBottom:8 }}>No tasks yet.</p>}
       </div>
-
-      {/* Add form */}
       <button className="add-task-btn" onClick={()=>setOpen(o=>!o)}>{open?'▲ Cancel':'+ Add Task'}</button>
       {open&&(
         <div className="add-task-form">
@@ -467,7 +493,13 @@ export default function App() {
   const today = todayDs();
 
   const [viewDs, setViewDs]         = useState(clamp(today));
-  const [state, setState]           = useState({ done:[],skip:[],timers:{},vd:today,lastSeen:{},todos:[...DEFAULT_TODOS],weights:{urgency:48,recency:32,difficulty:14,alevel:6} });
+  const [state, setState]           = useState({
+    done:[],skip:[],timers:{},vd:today,lastSeen:{},
+    todos:[...DEFAULT_TODOS],
+    weights:{urgency:48,recency:32,difficulty:14,alevel:6},
+    schedules:{},          // persisted schedule per date-string
+    activeSessionId:null,activeSessionSubj:null,activeSessionStart:null,
+  });
   const [activeSession, setActive]  = useState(null);
   const [loaded, setLoaded]         = useState(false);
   const [schedule, setSchedule]     = useState([]);
@@ -479,21 +511,22 @@ export default function App() {
   const stateRef      = useRef(state);
   const activeRef     = useRef(activeSession);
   const scheduleRef   = useRef([]);
+  const viewDsRef     = useRef(viewDs);
   const lastFetchRef  = useRef(0);
   useEffect(()=>{ stateRef.current=state; },[state]);
   useEffect(()=>{ activeRef.current=activeSession; },[activeSession]);
   useEffect(()=>{ scheduleRef.current=schedule; },[schedule]);
+  useEffect(()=>{ viewDsRef.current=viewDs; },[viewDs]);
 
-  // Load
+  // ── Load ──────────────────────────────────────────────────────────────────
   useEffect(()=>{
     apiGet().then(s=>{
       lastFetchRef.current=Date.now();
       s.todos = migrateTodos(s.todos);
+      if (!s.schedules) s.schedules = {};
       setState(prev=>({...prev,...s}));
       if(s.vd&&s.vd>=START_DATE&&s.vd<=END_DATE) setViewDs(s.vd);
       if(s.activeSessionId&&s.activeSessionSubj){
-        // Prefer localStorage — written synchronously in handleStart so it's always ahead of
-        // any async save/beacon, and it survives iOS killing the PWA JS context.
         const lsId=localStorage.getItem(LS_SID);
         const lsStart=localStorage.getItem(LS_SSTART);
         const startTime=(lsId===s.activeSessionId&&lsStart)
@@ -505,14 +538,18 @@ export default function App() {
     }).catch(()=>setLoaded(true));
   },[]);
 
-  // Save helpers
+  // ── Save helpers ──────────────────────────────────────────────────────────
   const saveTimerRef = useRef(null);
   const save = useCallback(s=>{
     clearTimeout(saveTimerRef.current);
     saveTimerRef.current=setTimeout(()=>apiPost(s),300);
   },[]);
   const buildSnap = useCallback(()=>{
-    return stateRef.current;
+    // Include the latest schedule so it's in the beacon save
+    return {
+      ...stateRef.current,
+      schedules:{...stateRef.current.schedules,[viewDsRef.current]:scheduleRef.current},
+    };
   },[]);
   useEffect(()=>{
     const beacon=()=>{
@@ -524,26 +561,51 @@ export default function App() {
     window.addEventListener('beforeunload',beacon);
     return()=>{ document.removeEventListener('visibilitychange',onHide); window.removeEventListener('beforeunload',beacon); };
   },[buildSnap]);
+  // Periodic save when session is active
   useEffect(()=>{
     if(!activeSession) return;
-    const t=setInterval(()=>apiPost(stateRef.current),5000);
+    const t=setInterval(()=>apiPost(buildSnap()),5000);
     return()=>clearInterval(t);
-  },[activeSession]);
+  },[activeSession,buildSnap]);
 
-  // Re-fetch from server when tab becomes visible (phone picks up computer's data)
+  // ── Persist schedule whenever it changes ──────────────────────────────────
+  useEffect(()=>{
+    if(!loaded||!schedule.length) return;
+    const ds=viewDsRef.current;
+    // Update stateRef directly so buildSnap always has the latest schedule,
+    // then debounce the actual server save.
+    stateRef.current={
+      ...stateRef.current,
+      schedules:{...(stateRef.current.schedules||{}),[ds]:schedule},
+    };
+    clearTimeout(saveTimerRef.current);
+    saveTimerRef.current=setTimeout(()=>apiPost(stateRef.current),400);
+  },[schedule,loaded]); // eslint-disable-line
+
+  // ── Re-fetch when tab becomes visible (cross-device sync) ─────────────────
   useEffect(()=>{
     const onVisible=()=>{
       if(document.visibilityState==='hidden') return;
-      if(activeRef.current) return;
+      if(activeRef.current) return; // don't disturb active session
       if(Date.now()-lastFetchRef.current<15000) return;
       lastFetchRef.current=Date.now();
       apiGet().then(s=>{
+        if(!s.schedules) s.schedules={};
         s.todos=migrateTodos(s.todos);
         setState(prev=>({...prev,...s}));
-        const newVd=s.vd&&s.vd>=START_DATE&&s.vd<=END_DATE?s.vd:viewDs;
+        const ds=viewDsRef.current;
+        const newVd=s.vd&&s.vd>=START_DATE&&s.vd<=END_DATE?s.vd:ds;
         if(s.vd&&s.vd>=START_DATE&&s.vd<=END_DATE) setViewDs(s.vd);
-        const ws=normalizeWeights(s.weights||{urgency:48,recency:32,difficulty:14,alevel:6});
-        setSchedule(generateSchedule(newVd,s.lastSeen||{},ws,s.todos||DEFAULT_TODOS));
+        const ws=normalizeWeights(s.weights||DEFAULT_WEIGHTS);
+        const todos=migrateTodos(s.todos);
+        const nm=nowMins();
+        // Use saved schedule for viewed date, regenerating only future sessions
+        const saved=s.schedules?.[newVd];
+        if(saved?.length){
+          setSchedule(resetSchedule(newVd,nm,saved,s.lastSeen||{},ws,todos));
+        } else {
+          setSchedule(generateSchedule(newVd,s.lastSeen||{},ws,todos));
+        }
       }).catch(()=>{});
     };
     document.addEventListener('visibilitychange',onVisible);
@@ -552,58 +614,76 @@ export default function App() {
 
   function updateState(fn) { setState(prev=>{ const next=fn(prev); save(next); return next; }); }
 
-  // Schedule generation (stable per viewDs)
+  // ── Schedule generation ───────────────────────────────────────────────────
+  // Helper: safe cut-point that never disturbs past or ongoing sessions
+  const safeCutMin = useCallback(()=>{
+    const nm=nowMins();
+    const active=activeRef.current;
+    if(!active) return nm;
+    const ongoing=scheduleRef.current.find(i=>i.id===active.id);
+    return ongoing ? Math.max(nm, ongoing.end) : nm;
+  },[]);
+
   useEffect(()=>{
     if(!loaded) return;
     const ws=normalizeWeights(stateRef.current.weights);
     const todos=stateRef.current.todos||DEFAULT_TODOS;
-    setSchedule(generateSchedule(viewDs,stateRef.current.lastSeen||{},ws,todos));
-  },[viewDs,loaded]);
+
+    if(viewDs<today){
+      // Past day — show the saved (immutable) schedule
+      const saved=stateRef.current.schedules?.[viewDs];
+      setSchedule(saved?.length?saved:generateSchedule(viewDs,stateRef.current.lastSeen||{},ws,todos));
+    } else if(viewDs===today){
+      // Today — restore saved schedule and only regenerate future sessions
+      const saved=stateRef.current.schedules?.[today];
+      if(saved?.length){
+        const cut=safeCutMin();
+        setSchedule(resetSchedule(today,cut,saved,stateRef.current.lastSeen||{},ws,todos));
+      } else {
+        setSchedule(generateSchedule(today,stateRef.current.lastSeen||{},ws,todos));
+      }
+    } else {
+      // Future day — generate fresh
+      setSchedule(generateSchedule(viewDs,stateRef.current.lastSeen||{},ws,todos));
+    }
+  },[viewDs,loaded]); // eslint-disable-line
+
   useEffect(()=>{
     if(!loaded) return;
     const ws=normalizeWeights(stateRef.current.weights);
     const todos=stateRef.current.todos||DEFAULT_TODOS;
-    setTodaySch(generateSchedule(today,stateRef.current.lastSeen||{},ws,todos));
-  },[today,loaded]);
+    const saved=stateRef.current.schedules?.[today];
+    setTodaySch(saved?.length?saved:generateSchedule(today,stateRef.current.lastSeen||{},ws,todos));
+  },[today,loaded]); // eslint-disable-line
+
   useEffect(()=>{
     setState(prev=>{ const next={...prev,vd:viewDs}; save(next); return next; });
   },[viewDs]); // eslint-disable-line
 
-  // Priorities
+  // ── Priorities (live) ─────────────────────────────────────────────────────
   useEffect(()=>{
     const upd=()=>setPriorities(calcAllPriorities(today,nowMins(),stateRef.current.lastSeen||{},normalizeWeights(stateRef.current.weights)));
     upd(); const t=setInterval(upd,30000); return()=>clearInterval(t);
   },[today]);
 
-  // Restart from now — also clears done/skip for sessions being replaced
-  const handleRestart=useCallback(()=>{
-    const fromMin=viewDs===todayDs()?nowMins():7*60;
-    const ws=normalizeWeights(stateRef.current.weights);
-    // IDs of study sessions that end after the cut (they'll be replaced by new sessions)
-    const futureIds=new Set(scheduleRef.current.filter(i=>i.type==='study'&&i.end>fromMin).map(i=>i.id));
-    updateState(s=>({...s,done:s.done.filter(id=>!futureIds.has(id)),skip:s.skip.filter(id=>!futureIds.has(id))}));
-    setSchedule(prev=>resetSchedule(viewDs,fromMin,prev,stateRef.current.lastSeen||{},ws,stateRef.current.todos||[]));
-  },[viewDs]); // eslint-disable-line
-
-  // Weights change
+  // ── Weights change → auto-reset future sessions only ─────────────────────
   const handleWeightsChange=useCallback(newW=>{
     updateState(prev=>({...prev,weights:newW}));
     const ws=normalizeWeights(newW);
-    const fromMin=viewDs===todayDs()?nowMins():7*60;
-    setSchedule(prev=>resetSchedule(viewDs,fromMin,prev,stateRef.current.lastSeen||{},ws,stateRef.current.todos||[]));
-  },[viewDs]); // eslint-disable-line
+    const cut=safeCutMin();
+    setSchedule(prev=>resetSchedule(viewDs,cut,prev,stateRef.current.lastSeen||{},ws,stateRef.current.todos||[]));
+  },[viewDs,safeCutMin]); // eslint-disable-line
 
-  // Block click → open modal
+  // ── Block click → open appropriate modal ─────────────────────────────────
   const handleBlockClick=useCallback(item=>{
     if (item.type==='study') setLogItem(item);
     else setEditing(item);
   },[]);
 
-  // Log time for a session done without the timer
+  // ── Log time for a session done without the timer ─────────────────────────
   const handleLogTime=useCallback((item,mins)=>{
     const ms=mins*60*1000;
     const newLastSeen={...stateRef.current.lastSeen,[item.subj]:toEpoch(viewDs,item.end)};
-    // If this was the running session, clear it
     const wasActive=activeRef.current?.id===item.id;
     if(wasActive){ localStorage.removeItem(LS_SID); localStorage.removeItem(LS_SSTART); setActive(null); }
     updateState(prev=>({...prev,
@@ -613,105 +693,115 @@ export default function App() {
       lastSeen:newLastSeen,
     }));
     const ws=normalizeWeights(stateRef.current.weights);
-    setSchedule(prev=>resetSchedule(viewDs,item.end,prev,newLastSeen,ws,stateRef.current.todos||[]));
+    // Reset only future sessions; preserve everything up to and including this session
+    const cut=Math.max(item.end,nowMins());
+    setSchedule(prev=>resetSchedule(viewDs,cut,prev,newLastSeen,ws,stateRef.current.todos||[]));
     setLogItem(null);
   },[viewDs]); // eslint-disable-line
 
-  // Save edited study session (reset from min(newStart, oldStart))
+  // ── Edit study session time ───────────────────────────────────────────────
   const handleSaveSession=useCallback((id,newStart,newEnd)=>{
     const ws=normalizeWeights(stateRef.current.weights);
     setSchedule(prev=>{
       const item=prev.find(i=>i.id===id);
       const resetFrom=item?Math.min(item.start,newStart):newStart;
       const updated=prev.map(i=>i.id!==id?i:{...i,start:newStart,end:newEnd,startFmt:fmtTime(newStart),endFmt:fmtTime(newEnd),duration:newEnd-newStart});
-      return resetSchedule(viewDs,resetFrom,updated,stateRef.current.lastSeen||{},ws,stateRef.current.todos||[]);
+      const cut=Math.max(resetFrom,nowMins());
+      return resetSchedule(viewDs,cut,updated,stateRef.current.lastSeen||{},ws,stateRef.current.todos||[]);
     });
     setEditing(null);
   },[viewDs]);
 
-  // Save edited todo — preserve past sessions
+  // ── Edit todo ─────────────────────────────────────────────────────────────
   const handleSaveTodo=useCallback(updated=>{
     const updatedTodos=(stateRef.current.todos||[]).map(t=>t.id!==updated.id?t:{...t,name:updated.name,start:updated.start,end:updated.end,days:updated.days,color:updated.color});
     updateState(prev=>({...prev,todos:updatedTodos}));
     const ws=normalizeWeights(stateRef.current.weights);
-    const fromMin=viewDs===todayDs()?nowMins():7*60;
-    setSchedule(prev=>resetSchedule(viewDs,fromMin,prev,stateRef.current.lastSeen||{},ws,updatedTodos));
+    const cut=safeCutMin();
+    setSchedule(prev=>resetSchedule(viewDs,cut,prev,stateRef.current.lastSeen||{},ws,updatedTodos));
     setEditing(null);
-  },[viewDs]); // eslint-disable-line
+  },[viewDs,safeCutMin]); // eslint-disable-line
 
-  // Todo add — preserve past sessions
+  // ── Add todo ──────────────────────────────────────────────────────────────
   const handleTodoAdd=useCallback(newTodo=>{
     const todo={id:`td-${Date.now()}`,name:newTodo.name,start:newTodo.start,end:newTodo.end,days:newTodo.days,color:newTodo.color};
     const updatedTodos=[...(stateRef.current.todos||[]),todo];
     updateState(prev=>({...prev,todos:updatedTodos}));
     const ws=normalizeWeights(stateRef.current.weights);
-    const fromMin=viewDs===todayDs()?nowMins():7*60;
-    setSchedule(prev=>resetSchedule(viewDs,fromMin,prev,stateRef.current.lastSeen||{},ws,updatedTodos));
-  },[viewDs]); // eslint-disable-line
+    const cut=safeCutMin();
+    setSchedule(prev=>resetSchedule(viewDs,cut,prev,stateRef.current.lastSeen||{},ws,updatedTodos));
+  },[viewDs,safeCutMin]); // eslint-disable-line
 
-  // Todo delete — preserve past sessions
+  // ── Delete todo ───────────────────────────────────────────────────────────
   const handleTodoDelete=useCallback(id=>{
     const updatedTodos=(stateRef.current.todos||[]).filter(t=>t.id!==id);
     updateState(prev=>({...prev,todos:updatedTodos}));
     const ws=normalizeWeights(stateRef.current.weights);
-    const fromMin=viewDs===todayDs()?nowMins():7*60;
-    setSchedule(prev=>resetSchedule(viewDs,fromMin,prev,stateRef.current.lastSeen||{},ws,updatedTodos));
-  },[viewDs]); // eslint-disable-line
+    const cut=safeCutMin();
+    setSchedule(prev=>resetSchedule(viewDs,cut,prev,stateRef.current.lastSeen||{},ws,updatedTodos));
+  },[viewDs,safeCutMin]); // eslint-disable-line
 
-  // Todo edit from list (open modal with todo's full data)
   const handleTodoEditFromList=useCallback(todo=>{
     setEditing({...todo,type:'todo',label:todo.name});
   },[]);
 
-  // Session actions
+  // ── Session actions ───────────────────────────────────────────────────────
   function handleStart(item) {
     haptic(50);
     const startTime=Date.now();
-    // Write to localStorage SYNCHRONOUSLY — this happens before React re-renders or any
-    // async save/beacon, so it survives the race where visibilitychange fires before
-    // the React state update has committed to stateRef.current.
     localStorage.setItem(LS_SID,item.id);
     localStorage.setItem(LS_SSTART,String(startTime));
     setActive({id:item.id,subj:item.subj,startTime});
     updateState(prev=>({...prev,activeSessionId:item.id,activeSessionSubj:item.subj,activeSessionStart:startTime}));
   }
+
   function handleStop(item) {
     haptic([40,20,40]); if(!activeSession) return;
     localStorage.removeItem(LS_SID); localStorage.removeItem(LS_SSTART);
     const elapsed=Date.now()-activeSession.startTime;
+    const newLastSeen={...stateRef.current.lastSeen,[item.subj]:Date.now()};
     updateState(prev=>({...prev,activeSessionId:null,activeSessionSubj:null,activeSessionStart:null,
       timers:{...prev.timers,[item.id]:{total:(prev.timers[item.id]?.total||0)+elapsed}},
-      lastSeen:{...prev.lastSeen,[item.subj]:Date.now()}}));
+      lastSeen:newLastSeen}));
     setActive(null);
+    // Auto-reset future sessions based on updated lastSeen
+    if(viewDs===today){
+      const ws=normalizeWeights(stateRef.current.weights);
+      setSchedule(prev=>resetSchedule(today,nowMins(),prev,newLastSeen,ws,stateRef.current.todos||[]));
+    }
   }
+
   function handleDone(item) {
     haptic([40,20,40]);
     localStorage.removeItem(LS_SID); localStorage.removeItem(LS_SSTART);
     const elapsed=activeSession?.id===item.id?Date.now()-activeSession.startTime:0;
+    const newLastSeen={...stateRef.current.lastSeen,[item.subj]:Date.now()};
     updateState(prev=>({...prev,activeSessionId:null,activeSessionSubj:null,activeSessionStart:null,
       done:prev.done.includes(item.id)?prev.done:[...prev.done,item.id],
       timers:elapsed>0?{...prev.timers,[item.id]:{total:(prev.timers[item.id]?.total||0)+elapsed}}:prev.timers,
-      lastSeen:{...prev.lastSeen,[item.subj]:Date.now()}}));
+      lastSeen:newLastSeen}));
     setActive(null);
-  }
-  function handleSkip(id) {
-    if(activeSession?.id===id){
-      localStorage.removeItem(LS_SID); localStorage.removeItem(LS_SSTART);
-      setActive(null);
+    // Auto-reset future sessions
+    if(viewDs===today){
+      const ws=normalizeWeights(stateRef.current.weights);
+      setSchedule(prev=>resetSchedule(today,nowMins(),prev,newLastSeen,ws,stateRef.current.todos||[]));
     }
-    updateState(prev=>({...prev,
-      activeSessionId:prev.activeSessionId===id?null:prev.activeSessionId,
-      activeSessionStart:prev.activeSessionId===id?null:prev.activeSessionStart,
-      activeSessionSubj:prev.activeSessionId===id?null:prev.activeSessionSubj,
-      skip:prev.skip.includes(id)?prev.skip:[...prev.skip,id]}));
   }
 
-  // Stats
-  const effSch=viewDs===today?schedule:todaySchedule;
-  const todaySessions=effSch.filter(s=>s.type==='study');
-  const todayDone=todaySessions.filter(s=>state.done.includes(s.id)).length;
+  // ── Stats ─────────────────────────────────────────────────────────────────
+  // For the header: use viewDs schedule for past days, today's for future
+  const effSch=viewDs>today?todaySchedule:schedule;
+  const displaySessions=effSch.filter(s=>s.type==='study');
+  const totalMinsSched=displaySessions.reduce((a,s)=>a+(s.end-s.start),0);
+  const minsStudied=computeMinsStudied(displaySessions,state.done,state.timers,activeSession,now);
+  const progressPct=totalMinsSched>0?Math.min(100,(minsStudied/totalMinsSched)*100):0;
+  const hrs=Math.floor(minsStudied/60);
+  const minsRem=Math.floor(minsStudied%60);
+  const timeStudied=hrs>0?`${hrs}h ${minsRem}m`:`${minsRem}m`;
+
   const examsDone=EXAMS.filter(e=>toEpoch(e.date,toMins(e.end))<now.getTime()).length;
   const clockStr=`${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+  const isViewingPast=viewDs<today;
 
   if(!loaded) return <div style={{ display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh',color:'#666' }}>Loading…</div>;
 
@@ -727,16 +817,25 @@ export default function App() {
       {/* Header */}
       <div className="card">
         <div className="header">
-          <div className="header-left"><strong>{todayDone}</strong>revised today</div>
+          <div className="header-left">
+            <strong>{timeStudied}</strong>
+            {isViewingPast?` on ${fmtDateLabel(viewDs).split(' ').slice(0,2).join(' ')}`:'studied today'}
+          </div>
           <div className="header-right"><div className="clock">{clockStr}</div></div>
         </div>
         <div className="progress-section">
           <div className="progress-label">
-            <span>Today: {todayDone}/{todaySessions.length} sessions</span>
+            <span>
+              {isViewingPast?`${viewDs} ·`:''} {Math.round(minsStudied)}m / {totalMinsSched}m study
+            </span>
             <span>Exams: {examsDone}/{EXAMS.length}</span>
           </div>
-          <div className="progress-bar"><div className="progress-fill" style={{ width:todaySessions.length>0?`${(todayDone/todaySessions.length)*100}%`:'0%',background:'#c08828' }} /></div>
-          <div className="progress-bar"><div className="progress-fill" style={{ width:`${(examsDone/EXAMS.length)*100}%`,background:'#2090b0' }} /></div>
+          <div className="progress-bar">
+            <div className="progress-fill" style={{ width:`${progressPct}%`,background:'#c08828' }} />
+          </div>
+          <div className="progress-bar">
+            <div className="progress-fill" style={{ width:`${(examsDone/EXAMS.length)*100}%`,background:'#2090b0' }} />
+          </div>
         </div>
       </div>
 
@@ -747,6 +846,7 @@ export default function App() {
           <div className="date-display">
             <div className="date-main">{fmtDateLabel(viewDs)}</div>
             {viewDs===today&&<div className="date-sub">Today</div>}
+            {isViewingPast&&<div className="date-sub" style={{ color:'#888' }}>Past day</div>}
           </div>
           <button onClick={()=>setViewDs(clamp(addDays(viewDs,1)))} disabled={viewDs>=END_DATE}>&#8250;</button>
         </div>
@@ -756,14 +856,15 @@ export default function App() {
       <div className="card">
         <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12 }}>
           <div className="section-header" style={{ margin:0 }}>Schedule</div>
-          <button className="btn-restart" onClick={handleRestart}>↺ Reset from now</button>
         </div>
-        <p className="dim-text" style={{ fontSize:11,marginBottom:8 }}>Tap a study session to log time · tap a task to edit.</p>
+        <p className="dim-text" style={{ fontSize:11,marginBottom:8 }}>
+          {isViewingPast?'Past day — tap any session to log or correct time.':'Tap a session to log time · tap a task to edit.'}
+        </p>
         {schedule.length===0
           ? <p className="dim-text">No sessions scheduled.</p>
           : <CalendarView schedule={schedule} state={state} activeSession={activeSession} now={now}
               viewDs={viewDs} onStart={handleStart} onStop={handleStop} onDone={handleDone}
-              onSkip={handleSkip} onBlockClick={handleBlockClick} editingId={editingItem?.id} />
+              onBlockClick={handleBlockClick} editingId={editingItem?.id} />
         }
       </div>
 
@@ -776,7 +877,7 @@ export default function App() {
       {/* Priority sliders */}
       <div className="card">
         <div className="section-header">Priority Weights</div>
-        <p className="dim-text" style={{ fontSize:11,marginBottom:10 }}>Changing a slider resets today's future sessions.</p>
+        <p className="dim-text" style={{ fontSize:11,marginBottom:10 }}>Adjusting a slider only changes future sessions.</p>
         <PrioritySliders weights={state.weights} onChange={handleWeightsChange} />
       </div>
 
