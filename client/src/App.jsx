@@ -539,7 +539,8 @@ export default function App() {
   },[]);
 
   // ── Save helpers ──────────────────────────────────────────────────────────
-  const saveTimerRef = useRef(null);
+  const saveTimerRef     = useRef(null);  // for regular state saves
+  const schedSaveTimerRef= useRef(null);  // separate timer for schedule saves (never cancels state saves)
   const save = useCallback(s=>{
     clearTimeout(saveTimerRef.current);
     saveTimerRef.current=setTimeout(()=>apiPost(s),300);
@@ -572,14 +573,23 @@ export default function App() {
   useEffect(()=>{
     if(!loaded||!schedule.length) return;
     const ds=viewDsRef.current;
-    // Update stateRef directly so buildSnap always has the latest schedule,
-    // then debounce the actual server save.
-    stateRef.current={
-      ...stateRef.current,
-      schedules:{...(stateRef.current.schedules||{}),[ds]:schedule},
-    };
-    clearTimeout(saveTimerRef.current);
-    saveTimerRef.current=setTimeout(()=>apiPost(stateRef.current),400);
+
+    // 1. Merge new schedule into React state so navigating between days works correctly.
+    //    Using setState (not direct stateRef mutation) ensures stateRef stays in sync
+    //    via useEffect([state]) and can't be overwritten by other effects.
+    setState(prev=>{
+      if(prev.schedules?.[ds]===schedule) return prev; // same reference — no-op
+      return {...prev,schedules:{...(prev.schedules||{}),[ds]:schedule}};
+    });
+
+    // 2. Debounce server save via a SEPARATE timer so we never cancel regular state saves.
+    //    Capture ds + schedule in closure; read stateRef after the 400ms so it includes
+    //    the setState from step 1 (which will have completed by then).
+    const schedSnap={[ds]:schedule};
+    clearTimeout(schedSaveTimerRef.current);
+    schedSaveTimerRef.current=setTimeout(()=>{
+      apiPost({...stateRef.current,schedules:{...(stateRef.current.schedules||{}),...schedSnap}});
+    },400);
   },[schedule,loaded]); // eslint-disable-line
 
   // ── Re-fetch when tab becomes visible (cross-device sync) ─────────────────

@@ -1,5 +1,14 @@
 import { EXAMS } from './exams.js';
 
+// Globally-unique ID generator for reset sessions.
+// Using Date.now() base means IDs from different page-loads can never collide
+// with each other, so state.done / state.timers keys never bleed across resets.
+const _resetUidBase = Date.now().toString(36);
+let   _resetUidN    = 0;
+function makeResetId(ds) {
+  return `${ds}-RR${_resetUidBase}${_resetUidN++}`;
+}
+
 const DIFF = {
   Spanish: 100, History: 91, "English Language": 82, "Further Mathematics": 73,
   "Computer Science": 64, "English Literature": 55, Economics: 46, Biology: 36,
@@ -282,7 +291,8 @@ export function resetSchedule(ds, fromMinutes, existingSchedule, lastSeen, weigh
     const actualDur = Math.min(dur, freeUntil - cursor);
     if (actualDur < 15) { cursor = freeUntil; continue; }
 
-    const id = `${ds}-RR${sessionIdx++}`;
+    const id = makeResetId(ds);
+    sessionIdx++; // keep incrementing for duration-variety calculation
     newStudy.push({ type: 'study', id, subj, label: subj, start: cursor, end: cursor + actualDur, startFmt: fmtTime(cursor), endFmt: fmtTime(cursor + actualDur), duration: actualDur });
 
     lsNow[subj] = toEpoch(ds, cursor + actualDur);
